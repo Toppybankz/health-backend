@@ -14,23 +14,17 @@ dotenv.config({ path: envPath });
 const app = express();
 const server = http.createServer(app);
 
-// ✅ Define allowed origins (Local + Vercel Deployments)
+// ✅ Allowed origins
 const allowedOrigins = [
-  "http://localhost:3000", // ✅ Local Development
-  /\.vercel\.app$/ // ✅ Any Vercel deployment (Regex)
+  "https://health-consultation-frontend.vercel.app", // ✅ Your live frontend
+  "http://localhost:3000" // ✅ Local dev
 ];
 
 // ✅ Middleware
 app.use(express.json());
 app.use(
   cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.some((o) => (o instanceof RegExp ? o.test(origin) : o === origin))) {
-        callback(null, true);
-      } else {
-        callback(new Error("CORS not allowed for this origin: " + origin));
-      }
-    },
+    origin: allowedOrigins,
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true
   })
@@ -39,13 +33,7 @@ app.use(
 // ✅ Initialize Socket.IO with CORS
 const io = new Server(server, {
   cors: {
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.some((o) => (o instanceof RegExp ? o.test(origin) : o === origin))) {
-        callback(null, true);
-      } else {
-        callback(new Error("Socket.IO CORS blocked for origin: " + origin));
-      }
-    },
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -68,27 +56,26 @@ mongoose
 io.on("connection", (socket) => {
   console.log("✅ User connected:", socket.id);
 
+  // ✅ Join a chat room
   socket.on("joinRoom", (room) => {
     if (!room) return;
     socket.join(room);
     console.log(`✅ User ${socket.id} joined room: ${room}`);
   });
 
+  // ✅ Send and broadcast message
   socket.on("sendMessage", async (msg) => {
     console.log("📥 Message received from client:", msg);
 
-    let { sender, senderName, receiver, text, room } = msg;
+    const { sender, senderName, receiver, text, room } = msg;
 
     if (!sender || !receiver || !text || !room) {
       console.error("❌ Invalid message data:", msg);
       return;
     }
 
-    if (!senderName || senderName.trim() === "") {
-      senderName = "Unknown User";
-    }
-
     try {
+      // Save message to DB
       const newMessage = new Message({
         sender,
         senderName,
@@ -98,6 +85,7 @@ io.on("connection", (socket) => {
       await newMessage.save();
       console.log("✅ Message saved to DB:", newMessage);
 
+      // Prepare message for broadcast
       const formattedMessage = {
         _id: newMessage._id,
         text: newMessage.text,
@@ -108,6 +96,7 @@ io.on("connection", (socket) => {
         createdAt: newMessage.createdAt
       };
 
+      // ✅ Broadcast message to all users in the room
       io.to(room).emit("message", formattedMessage);
       console.log(`📤 Message sent to room: ${room}`);
     } catch (err) {
