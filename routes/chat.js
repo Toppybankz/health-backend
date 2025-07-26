@@ -2,16 +2,16 @@ const express = require("express");
 const router = express.Router();
 const Message = require("../models/Message");
 
-// ✅ Send a new private message
+// ✅ Send a new private message (Include senderName)
 router.post("/send", async (req, res) => {
   try {
-    const { sender, receiver, text } = req.body;
+    const { sender, senderName, receiver, text } = req.body;
 
     if (!sender || !receiver || !text) {
       return res.status(400).json({ error: "Sender, receiver, and text are required" });
     }
 
-    const newMessage = new Message({ sender, receiver, text });
+    const newMessage = new Message({ sender, senderName, receiver, text });
     await newMessage.save();
 
     res.json(newMessage);
@@ -21,7 +21,7 @@ router.post("/send", async (req, res) => {
   }
 });
 
-// ✅ Fetch private messages between two users (UPDATED to ensure sorted history)
+// ✅ Fetch private messages between two users (sorted oldest → newest)
 router.get("/private/:sender/:receiver", async (req, res) => {
   try {
     const { sender, receiver } = req.params;
@@ -31,7 +31,7 @@ router.get("/private/:sender/:receiver", async (req, res) => {
         { sender, receiver },
         { sender: receiver, receiver: sender }
       ]
-    }).sort({ createdAt: 1 }); // ✅ Sorted oldest → newest
+    }).sort({ createdAt: 1 });
 
     res.json(messages);
   } catch (err) {
@@ -40,7 +40,7 @@ router.get("/private/:sender/:receiver", async (req, res) => {
   }
 });
 
-// ✅ Fetch all conversations for a user (Keep as is)
+// ✅ Fetch all conversations for a user
 router.get("/conversations/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
