@@ -16,7 +16,7 @@ const server = http.createServer(app);
 
 // ✅ Allowed origins
 const allowedOrigins = [
-  "https://health-consultation-frontend.vercel.app", // ✅ Your live frontend
+  "https://health-consultation-frontend.vercel.app", // ✅ Live frontend
   "http://localhost:3000" // ✅ Local dev
 ];
 
@@ -30,12 +30,13 @@ app.use(
   })
 );
 
-// ✅ Initialize Socket.IO with CORS
+// ✅ Initialize Socket.IO with explicit CORS
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
     methods: ["GET", "POST"],
-    credentials: true
+    credentials: true,
+    transports: ["websocket", "polling"] // ✅ Added fallback
   }
 });
 
@@ -75,17 +76,15 @@ io.on("connection", (socket) => {
     }
 
     try {
-      // Save message to DB
       const newMessage = new Message({
         sender,
-        senderName,
+        senderName: senderName || "Unknown",
         receiver,
         text
       });
       await newMessage.save();
       console.log("✅ Message saved to DB:", newMessage);
 
-      // Prepare message for broadcast
       const formattedMessage = {
         _id: newMessage._id,
         text: newMessage.text,
@@ -96,7 +95,7 @@ io.on("connection", (socket) => {
         createdAt: newMessage.createdAt
       };
 
-      // ✅ Broadcast message to all users in the room
+      // ✅ Broadcast to room
       io.to(room).emit("message", formattedMessage);
       console.log(`📤 Message sent to room: ${room}`);
     } catch (err) {
