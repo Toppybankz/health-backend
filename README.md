@@ -1,33 +1,105 @@
 # Health Consultation Backend
 
-## Environment
-Set `MONGO_URI`, `JWT_SECRET`, and `FRONTEND_URL` in the backend environment. Never commit real secrets.
+REST API and Socket.IO service for the Health Consultation application. It handles authentication, account approval, administrator operations, and authenticated private messaging.
 
-## Administrator setup
-Public registration cannot create administrator accounts. To provision the first administrator, set `ADMIN_EMAIL`, `ADMIN_PASSWORD` (at least 12 characters), and optionally `ADMIN_NAME` in the backend environment, then run:
+## Technology
+- Node.js and Express
+- MongoDB with Mongoose
+- JWT authentication
+- bcrypt password hashing
+- Socket.IO for real-time private messages
+
+## Getting started
+
+1. Install Node.js 20 or later and MongoDB.
+2. Clone this repository and install dependencies:
+
+   ```bash
+   npm ci
+   ```
+
+3. Create a local `.env` file (do not commit it):
+
+   ```env
+   PORT=5001
+   MONGO_URI=mongodb://127.0.0.1:27017/health-consultation
+   JWT_SECRET=replace-with-a-long-random-secret
+   FRONTEND_URL=http://localhost:3000
+   ```
+
+4. Start the API:
+
+   ```bash
+   npm run dev
+   ```
+
+   Or use `npm start` for a normal Node.js process.
+
+The API listens on port 5001 by default and connects to MongoDB before accepting requests.
+
+## Administrator provisioning
+
+Administrator accounts cannot be created through public registration. Configure these variables in the backend environment:
+
+```env
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=use-a-unique-password-of-at-least-12-characters
+ADMIN_NAME=Platform Administrator
+```
+
+Then run:
 
 ```bash
 npm run create-admin
 ```
 
-The script creates or updates the administrator account in MongoDB. Remove the temporary admin password from the environment after provisioning and use the normal login page. Administrators can access the frontend at `/admin`.
+The script creates or updates the administrator record. Keep the password private, do not commit it, and remove the temporary variable from the environment after provisioning. If the application uses `SECRET_ENV_PATH`, the provisioning script reads that same environment file.
 
-## Doctor approval workflow
-Doctor registrations are stored with status `pending`. Pending doctors cannot sign in and are not listed in the patient-facing doctor directory. An authenticated administrator can approve or reject applications. Approved doctors become available to patients.
+## Account lifecycle and authorization
 
-## Private messaging
-All chat routes require authentication. A user can retrieve only conversations in which they are a participant. The conversation inbox endpoint returns each approved participant and their latest message:
-- `GET /api/chat/conversations`
-- `GET /api/chat/private/:sender/:receiver`
-- `POST /api/chat/send`
+- Public registration accepts only the `doctor` and `patient` roles.
+- New doctors start as `pending` and cannot sign in until approved.
+- Patients are approved on registration.
+- Administrator endpoints require a valid JWT and the `admin` role.
+- Chat HTTP endpoints and Socket.IO connections require authenticated, approved doctor or patient accounts.
+- Private conversation history is restricted to one of its two participants.
 
-Socket.IO connections require a valid JWT, and users can join only a room for an approved user of the opposite role.
+## Main API routes
 
-## Administrator API
-All endpoints below require a valid administrator JWT:
-- `GET /api/admin/overview`
-- `GET /api/admin/users`
-- `PATCH /api/admin/doctors/:id/status` with `approved`, `rejected`, or `suspended`
-- `PATCH /api/admin/users/:id/status` with `approved` or `suspended`
+| Method | Route | Purpose |
+| --- | --- | --- |
+| POST | `/api/auth/register` | Register a patient or doctor |
+| POST | `/api/auth/login` | Sign in and receive a JWT |
+| GET | `/api/auth/me` | Get the authenticated account |
+| GET | `/api/auth/doctors` | List approved doctors |
+| GET | `/api/auth/patients` | List approved patients for permitted roles |
+| GET | `/api/chat/conversations` | Get the user's conversation inbox |
+| GET | `/api/chat/private/:sender/:receiver` | Get a participant-only conversation |
+| POST | `/api/chat/send` | Send a private message |
+| GET | `/api/admin/overview` | Get administrator dashboard counts |
+| GET | `/api/admin/users` | List patient and doctor accounts |
+| PATCH | `/api/admin/doctors/:id/status` | Approve, reject, or suspend a doctor |
+| PATCH | `/api/admin/users/:id/status` | Approve or suspend a patient |
 
-The server checks the authenticated role on every administrator route. Hiding the admin link in the frontend is only a usability measure; API authorization is enforced on the backend.
+Protected HTTP requests use the header `Authorization: Bearer <token>`.
+
+## Configuration
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `MONGO_URI` | Yes | MongoDB connection string |
+| `JWT_SECRET` | Yes | Secret used to sign and verify JWTs |
+| `FRONTEND_URL` | Recommended | Allowed frontend origin for CORS |
+| `PORT` | No | API port; defaults to 5001 |
+| `SECRET_ENV_PATH` | No | Alternate path to the environment file |
+| `ADMIN_EMAIL` | Provisioning only | Administrator email |
+| `ADMIN_PASSWORD` | Provisioning only | Administrator password (12+ characters) |
+| `ADMIN_NAME` | No | Administrator display name |
+
+## Quality checks
+
+GitHub Actions runs JavaScript syntax checks for pull requests and pushes to the main and fix branches. A passing syntax check is not a substitute for integration testing against a configured MongoDB instance.
+
+## Current scope and limitations
+
+This repository provides the backend for a portfolio project. It has not been represented as a production-certified medical system. Before handling real patient information, the application would need a formal privacy, security, operational, and regulatory review, plus comprehensive automated and integration tests.
