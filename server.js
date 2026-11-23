@@ -31,6 +31,12 @@ io.use(async (socket, next) => {
   } catch (error) { return next(new Error("Invalid token or unavailable account")); }
 });
 io.on("connection", (socket) => {
+  socket.on("leaveRoom", (otherUserId) => {
+    const current = String(socket.user.id), receiver = String(otherUserId || "");
+    if (!receiver || receiver === current) return;
+    socket.leave(`private-${[current, receiver].sort().join("-")}`);
+  });
+
   socket.on("joinRoom", async (otherUserId) => {
     const current = String(socket.user.id), receiver = String(otherUserId || "");
     if (!receiver || receiver === current) return;
