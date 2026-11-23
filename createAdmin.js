@@ -1,4 +1,7 @@
-require("dotenv").config();
+const path = require("path");
+const dotenv = require("dotenv");
+const envPath = process.env.SECRET_ENV_PATH || path.resolve(__dirname, ".env");
+dotenv.config({ path: envPath });
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const User = require("./models/User");
