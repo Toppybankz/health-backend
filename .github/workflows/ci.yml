@@ -16,5 +16,9 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Summarize dependency vulnerabilities
+        run: |
+          npm audit --json > npm-audit.json || true
+          node -e 'const report = require("./npm-audit.json"); const entries = Object.entries(report.vulnerabilities || {}); console.log("Dependency vulnerability summary:", JSON.stringify(entries.map(([name, item]) => ({ name, severity: item.severity, direct: item.isDirect, range: item.range, fixAvailable: item.fixAvailable })), null, 2));'
       - name: Run unit tests and JavaScript syntax checks
         run: npm run check
