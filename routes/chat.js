@@ -53,12 +53,6 @@ router.get("/conversations", async (req, res) => {
   } catch (error) { console.error("Error fetching conversations:", error.message); return res.status(500).json({ error: "Failed to fetch conversations." }); }
 });
 
-router.get("/conversations/:userId", async (req, res) => {
-  if (String(req.params.userId) !== String(req.user.id)) return res.status(403).json({ message: "You cannot access another user's conversations." });
-  req.url = "/conversations";
-  return router.handle(req, res);
-});
-
 router.get("/messages", async (req, res) => {
   try {
     const current = String(req.user.id);
