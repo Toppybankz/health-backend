@@ -5,13 +5,13 @@ const User = require("./models/User");
 
 async function createAdmin() {
   const { MONGO_URI, ADMIN_NAME, ADMIN_EMAIL, ADMIN_PASSWORD } = process.env;
-  if (!MONGO_URI || !ADMIN_EMAIL || !ADMIN_PASSWORD) {
-    throw new Error("Set MONGO_URI, ADMIN_EMAIL and ADMIN_PASSWORD in the backend environment before running this script.");
-  }
+  if (!MONGO_URI || !ADMIN_EMAIL || !ADMIN_PASSWORD) throw new Error("Set MONGO_URI, ADMIN_EMAIL and ADMIN_PASSWORD in the backend environment before running this script.");
   if (ADMIN_PASSWORD.length < 12) throw new Error("ADMIN_PASSWORD must be at least 12 characters.");
-
   await mongoose.connect(MONGO_URI);
   const email = ADMIN_EMAIL.trim().toLowerCase();
+  // Give existing records an explicit status before enabling approval enforcement.
+  await User.updateMany({ status: { $exists: false }, role: "doctor" }, { $set: { status: "pending" } });
+  await User.updateMany({ status: { $exists: false }, role: "patient" }, { $set: { status: "approved" } });
   const password = await bcrypt.hash(ADMIN_PASSWORD, 12);
   const admin = await User.findOneAndUpdate(
     { email },
@@ -21,7 +21,6 @@ async function createAdmin() {
   console.log(`Administrator account provisioned for ${admin.email}. Sign in through the normal login page.`);
   await mongoose.disconnect();
 }
-
 createAdmin().catch(async (error) => {
   console.error("Unable to provision administrator:", error.message);
   await mongoose.disconnect().catch(() => {});
