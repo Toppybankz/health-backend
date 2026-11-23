@@ -4,110 +4,65 @@ const dotenv = require("dotenv");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const http = require("http");
+const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
-const Message = require("./models/Message");
-
-// ✅ Load environment variables
+const User = require("./models/User");
 const envPath = process.env.SECRET_ENV_PATH || path.resolve(__dirname, ".env");
 dotenv.config({ path: envPath });
-
-const app = express();
-const server = http.createServer(app);
-
-// ✅ Allowed origins
-const allowedOrigins = [
-  "https://health-consultation-frontend.vercel.app", // ✅ Live frontend
-  "http://localhost:3000" // ✅ Local dev
-];
-
-// ✅ Middleware
-app.use(express.json());
-app.use(
-  cors({
-    origin: allowedOrigins,
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true
-  })
-);
-
-// ✅ Initialize Socket.IO with explicit CORS
-const io = new Server(server, {
-  cors: {
-    origin: allowedOrigins,
-    methods: ["GET", "POST"],
-    credentials: true,
-    transports: ["websocket", "polling"] // ✅ Added fallback
-  }
-});
-
-// ✅ Routes
+const app = express(), server = http.createServer(app);
+const allowedOrigins = [process.env.FRONTEND_URL, "https://health-consultation-frontend.vercel.app", "http://localhost:3000"].filter(Boolean);
+const corsOptions = { origin(origin, callback) { if (!origin || allowedOrigins.includes(origin)) return callback(null, true); return callback(new Error("Origin not allowed by CORS")); }, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], credentials: true };
+app.use(express.json({ limit: "1mb" }));
+app.use(cors(corsOptions));
+const io = new Server(server, { cors: corsOptions });
+app.set("io", io);
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/chat", require("./routes/chat"));
-
-// ✅ MongoDB Connection
-mongoose
-  .connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-  })
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.error("❌ Mongo Error:", err.message));
-
-// ✅ Socket.IO Real-time Chat
+app.use("/api/admin", require("./routes/admin"));
+io.use(async (socket, next) => {
+  const token = socket.handshake.auth && socket.handshake.auth.token;
+  if (!token || !process.env.JWT_SECRET) return next(new Error("Authentication required"));
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(payload.id).select("_id name role status");
+    if (!user || user.status !== "approved" || !["doctor", "patient"].includes(user.role)) return next(new Error("Account is not approved for chat"));
+    socket.user = { id: String(user._id), name: user.name, role: user.role };
+    return next();
+  } catch (error) { return next(new Error("Invalid token or unavailable account")); }
+});
 io.on("connection", (socket) => {
-  console.log("✅ User connected:", socket.id);
-
-  // ✅ Join a chat room
-  socket.on("joinRoom", (room) => {
-    if (!room) return;
-    socket.join(room);
-    console.log(`✅ User ${socket.id} joined room: ${room}`);
+  socket.on("leaveRoom", (otherUserId) => {
+    const current = String(socket.user.id), receiver = String(otherUserId || "");
+    if (!receiver || receiver === current) return;
+    socket.leave(`private-${[current, receiver].sort().join("-")}`);
   });
 
-  // ✅ Send and broadcast message
-  socket.on("sendMessage", async (msg) => {
-    console.log("📥 Message received from client:", msg);
-
-    const { sender, senderName, receiver, text, room } = msg;
-
-    if (!sender || !receiver || !text || !room) {
-      console.error("❌ Invalid message data:", msg);
-      return;
-    }
-
+  socket.on("joinRoom", async (otherUserId) => {
+    const current = String(socket.user.id), receiver = String(otherUserId || "");
+    if (!receiver || receiver === current) return;
     try {
-      const newMessage = new Message({
-        sender,
-        senderName: senderName || "Unknown",
-        receiver,
-        text
-      });
-      await newMessage.save();
-      console.log("✅ Message saved to DB:", newMessage);
-
-      const formattedMessage = {
-        _id: newMessage._id,
-        text: newMessage.text,
-        sender: newMessage.sender,
-        receiver: newMessage.receiver,
-        senderName: newMessage.senderName,
-        room,
-        createdAt: newMessage.createdAt
-      };
-
-      // ✅ Broadcast to room
-      io.to(room).emit("message", formattedMessage);
-      console.log(`📤 Message sent to room: ${room}`);
-    } catch (err) {
-      console.error("❌ Error saving/broadcasting message:", err.message);
-    }
-  });
-
-  socket.on("disconnect", () => {
-    console.log(`❌ User disconnected: ${socket.id}`);
+      const other = await User.findById(receiver).select("_id role status");
+      if (!other || other.status !== "approved" || other.role === socket.user.role || !["doctor", "patient"].includes(other.role)) return;
+      socket.join(`private-${[current, receiver].sort().join("-")}`);
+    } catch (error) { console.error("Unable to join chat room:", error.message); }
   });
 });
-
-// ✅ Deployment Port
 const PORT = process.env.PORT || 5001;
-server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+
+async function startServer() {
+  if (!process.env.MONGO_URI) {
+    console.error("MongoDB connection error: MONGO_URI is not configured.");
+    process.exit(1);
+  }
+
+  try {
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log("MongoDB Connected");
+    server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  } catch (error) {
+    console.error("MongoDB connection error:", error.message);
+    process.exit(1);
+  }
+}
+
+startServer();

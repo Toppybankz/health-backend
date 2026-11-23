@@ -4,7 +4,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "create-admin": "node createAdmin.js",
+    "test": "node --test",
+    "check": "node --test && find . -path './node_modules' -prune -o -name '*.js' -type f -print0 | xargs -0 -n1 node --check"
   },
   "keywords": [],
   "author": "",
