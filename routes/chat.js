@@ -1,9 +1,9 @@
 const express = require("express");
-const mongoose = require("mongoose");
 const router = express.Router();
 const Message = require("../models/Message");
 const User = require("../models/User");
 const verifyToken = require("../middleware/verifyToken");
+const { isValidObjectId, validatePrivateMessageInput } = require("../utils/chatValidation");
 const privateRoom = (first, second) => `private-${[String(first), String(second)].sort().join("-")}`;
 router.use(verifyToken);
 
@@ -11,11 +11,8 @@ router.post("/send", async (req, res) => {
   try {
     const sender = String(req.user.id), receiver = String(req.body.receiver || "");
     const text = typeof req.body.text === "string" ? req.body.text.trim() : "";
-    if (!receiver || !text) return res.status(400).json({ error: "Receiver and message text are required." });
-    if (!mongoose.Types.ObjectId.isValid(receiver)) return res.status(400).json({ error: "Invalid receiver account." });
-    if (receiver === sender) return res.status(400).json({ error: "You cannot send a private message to yourself." });
-    if (text.length > 5000) return res.status(400).json({ error: "Message must be 5,000 characters or fewer." });
-    if (!["doctor", "patient"].includes(req.user.role)) return res.status(403).json({ error: "Only doctors and patients can use private chat." });
+    const validationError = validatePrivateMessageInput({ senderId: sender, receiverId: receiver, text, role: req.user.role });
+    if (validationError) return res.status(validationError.status).json({ error: validationError.message });
     const recipient = await User.findById(receiver).select("_id role status");
     if (!recipient || recipient.status !== "approved" || recipient.role === req.user.role || !["doctor", "patient"].includes(recipient.role)) return res.status(403).json({ error: "The selected chat participant is unavailable." });
     const saved = await Message.create({ sender, senderName: req.user.name || "User", receiver, text });
@@ -30,7 +27,7 @@ router.get("/private/:sender/:receiver", async (req, res) => {
   try {
     const current = String(req.user.id), { sender, receiver } = req.params;
     if (!sender || !receiver || ![String(sender), String(receiver)].includes(current)) return res.status(403).json({ message: "You cannot access this conversation." });
-    if (!mongoose.Types.ObjectId.isValid(sender) || !mongoose.Types.ObjectId.isValid(receiver)) return res.status(400).json({ message: "Invalid conversation participant." });
+    if (!isValidObjectId(String(sender)) || !isValidObjectId(String(receiver))) return res.status(400).json({ message: "Invalid conversation participant." });
     return res.json(await Message.find({ $or: [{ sender: String(sender), receiver: String(receiver) }, { sender: String(receiver), receiver: String(sender) }] }).sort({ createdAt: 1, _id: 1 }));
   } catch (error) { console.error("Error fetching private messages:", error.message); return res.status(500).json({ error: "Failed to fetch private messages." }); }
 });
