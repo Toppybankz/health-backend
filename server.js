@@ -52,12 +52,18 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   // The client supplies only the other participant's ID. The room name and
   // membership are derived and checked on the server.
-  socket.on("joinRoom", (otherUserId) => {
+  socket.on("joinRoom", async (otherUserId) => {
     const currentUserId = String(socket.user.id);
     const receiverId = String(otherUserId || "");
     if (!receiverId || receiverId === currentUserId) return;
-    const room = `private-${[currentUserId, receiverId].sort().join("-")}`;
-    socket.join(room);
+    try {
+      const otherUser = await User.findById(receiverId).select("_id role");
+      if (!otherUser || otherUser.role === socket.user.role) return;
+      const room = `private-${[currentUserId, receiverId].sort().join("-")}`;
+      socket.join(room);
+    } catch (error) {
+      console.error("Unable to join chat room:", error.message);
+    }
   });
 });
 
