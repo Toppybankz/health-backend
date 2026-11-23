@@ -1,77 +1,122 @@
 const express = require("express");
 const router = express.Router();
 const Message = require("../models/Message");
+const verifyToken = require("../middleware/verifyToken");
 
-// ✅ Send a new private message (Include senderName)
+const privateRoom = (first, second) =>
+  `private-${[String(first), String(second)].sort().join("-")}`;
+
+router.use(verifyToken);
+
+// A sender can only send as the authenticated account. The server persists
+// once, then broadcasts the saved message to the participants' private room.
 router.post("/send", async (req, res) => {
   try {
-    const { sender, senderName, receiver, text } = req.body;
+    const sender = String(req.user.id);
+    const receiver = String(req.body.receiver || "");
+    const text = typeof req.body.text === "string" ? req.body.text.trim() : "";
 
-    if (!sender || !receiver || !text) {
-      return res.status(400).json({ error: "Sender, receiver, and text are required" });
+    if (!receiver || !text) {
+      return res.status(400).json({ error: "Receiver and message text are required." });
+    }
+    if (receiver === sender) {
+      return res.status(400).json({ error: "You cannot send a private message to yourself." });
+    }
+    if (text.length > 5000) {
+      return res.status(400).json({ error: "Message must be 5,000 characters or fewer." });
     }
 
-    const newMessage = new Message({ sender, senderName, receiver, text });
-    await newMessage.save();
+    const newMessage = await Message.create({
+      sender,
+      senderName: req.user.name || "User",
+      receiver,
+      text
+    });
 
-    res.json(newMessage);
-  } catch (err) {
-    console.error("Error sending message:", err.message);
-    res.status(500).json({ error: "Failed to send message" });
+    const room = privateRoom(sender, receiver);
+    const formattedMessage = {
+      _id: newMessage._id,
+      sender: newMessage.sender,
+      senderName: newMessage.senderName,
+      receiver: newMessage.receiver,
+      text: newMessage.text,
+      room,
+      createdAt: newMessage.createdAt
+    };
+
+    req.app.get("io").to(room).emit("message", formattedMessage);
+    return res.status(201).json(formattedMessage);
+  } catch (error) {
+    console.error("Error sending message:", error.message);
+    return res.status(500).json({ error: "Failed to send message." });
   }
 });
 
-// ✅ Fetch private messages between two users (sorted oldest → newest)
+// Only a participant in the conversation may read its history.
 router.get("/private/:sender/:receiver", async (req, res) => {
   try {
+    const currentUser = String(req.user.id);
     const { sender, receiver } = req.params;
+    if (![String(sender), String(receiver)].includes(currentUser)) {
+      return res.status(403).json({ message: "You cannot access this conversation." });
+    }
 
     const messages = await Message.find({
       $or: [
-        { sender, receiver },
-        { sender: receiver, receiver: sender }
+        { sender: String(sender), receiver: String(receiver) },
+        { sender: String(receiver), receiver: String(sender) }
       ]
     }).sort({ createdAt: 1 });
 
-    res.json(messages);
-  } catch (err) {
-    console.error("Error fetching private messages:", err.message);
-    res.status(500).json({ error: "Failed to fetch private messages" });
+    return res.json(messages);
+  } catch (error) {
+    console.error("Error fetching private messages:", error.message);
+    return res.status(500).json({ error: "Failed to fetch private messages." });
   }
 });
 
-// ✅ Fetch all conversations for a user
 router.get("/conversations/:userId", async (req, res) => {
   try {
-    const { userId } = req.params;
+    const currentUser = String(req.user.id);
+    if (String(req.params.userId) !== currentUser) {
+      return res.status(403).json({ message: "You cannot access another user's conversations." });
+    }
 
     const conversations = await Message.aggregate([
-      {
-        $match: {
-          $or: [{ sender: userId }, { receiver: userId }]
-        }
-      },
+      { $match: { $or: [{ sender: currentUser }, { receiver: currentUser }] } },
       {
         $group: {
           _id: {
-            participants: {
-              $cond: [
-                { $lt: ["$sender", "$receiver"] },
-                { sender: "$sender", receiver: "$receiver" },
-                { sender: "$receiver", receiver: "$sender" }
-              ]
-            }
+            $cond: [
+              { $lt: ["$sender", "$receiver"] },
+              { sender: "$sender", receiver: "$receiver" },
+              { sender: "$receiver", receiver: "$sender" }
+            ]
           },
           lastMessage: { $last: "$$ROOT" }
         }
       },
       { $sort: { "lastMessage.createdAt": -1 } }
     ]);
+    return res.json(conversations);
+  } catch (error) {
+    console.error("Error fetching conversations:", error.message);
+    return res.status(500).json({ error: "Failed to fetch conversations." });
+  }
+});
 
-    res.json(conversations);
-  } catch (err) {
-    console.error("Error fetching conversations:", err.message);
-    res.status(500).json({ error: "Failed to fetch conversations" });
+// Compatibility endpoint used by the frontend service; return only the
+// authenticated user's messages rather than exposing the entire message store.
+router.get("/messages", async (req, res) => {
+  try {
+    const userId = String(req.user.id);
+    const messages = await Message.find({
+      $or: [{ sender: userId }, { receiver: userId }]
+    }).sort({ createdAt: 1 });
+    return res.json(messages);
+  } catch (error) {
+    console.error("Error fetching messages:", error.message);
+    return res.status(500).json({ error: "Failed to fetch messages." });
   }
 });
 
