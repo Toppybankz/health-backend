@@ -6,6 +6,7 @@ const mongoose = require("mongoose");
 const http = require("http");
 const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
+const User = require("./models/User");
 
 const envPath = process.env.SECRET_ENV_PATH || path.resolve(__dirname, ".env");
 dotenv.config({ path: envPath });
@@ -23,7 +24,7 @@ const corsOptions = {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
     return callback(new Error("Origin not allowed by CORS"));
   },
-  methods: ["GET", "POST", "PUT", "DELETE"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   credentials: true
 };
 
@@ -35,12 +36,11 @@ app.set("io", io);
 
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/chat", require("./routes/chat"));
+app.use("/api/admin", require("./routes/admin"));
 
 io.use((socket, next) => {
   const token = socket.handshake.auth && socket.handshake.auth.token;
-  if (!token || !process.env.JWT_SECRET) {
-    return next(new Error("Authentication required"));
-  }
+  if (!token || !process.env.JWT_SECRET) return next(new Error("Authentication required"));
   try {
     socket.user = jwt.verify(token, process.env.JWT_SECRET);
     return next();
@@ -50,15 +50,13 @@ io.use((socket, next) => {
 });
 
 io.on("connection", (socket) => {
-  // The client supplies only the other participant's ID. The room name and
-  // membership are derived and checked on the server.
   socket.on("joinRoom", async (otherUserId) => {
     const currentUserId = String(socket.user.id);
     const receiverId = String(otherUserId || "");
     if (!receiverId || receiverId === currentUserId) return;
     try {
-      const otherUser = await User.findById(receiverId).select("_id role");
-      if (!otherUser || otherUser.role === socket.user.role) return;
+      const otherUser = await User.findById(receiverId).select("_id role status");
+      if (!otherUser || otherUser.status !== "approved" || otherUser.role === socket.user.role) return;
       const room = `private-${[currentUserId, receiverId].sort().join("-")}`;
       socket.join(room);
     } catch (error) {
