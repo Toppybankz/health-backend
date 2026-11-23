@@ -36,6 +36,7 @@ router.get("/conversations/:userId", async (req, res) => {
     if (String(req.params.userId) !== current) return res.status(403).json({ message: "You cannot access another user's conversations." });
     const conversations = await Message.aggregate([
       { $match: { $or: [{ sender: current }, { receiver: current }] } },
+      { $sort: { createdAt: 1, _id: 1 } },
       { $group: { _id: { $cond: [{ $lt: ["$sender", "$receiver"] }, { sender: "$sender", receiver: "$receiver" }, { sender: "$receiver", receiver: "$sender" }] }, lastMessage: { $last: "$$ROOT" } } },
       { $sort: { "lastMessage.createdAt": -1 } }
     ]);
