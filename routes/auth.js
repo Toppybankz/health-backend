@@ -21,21 +21,20 @@ router.post("/register", async (req, res) => {
 
     const normalizedEmail = String(email).trim().toLowerCase();
     const existingUser = await User.findOne({ email: normalizedEmail });
-    if (existingUser) {
-      return res.status(409).json({ message: "Email already registered." });
-    }
+    if (existingUser) return res.status(409).json({ message: "Email already registered." });
 
     const hashedPassword = await bcrypt.hash(password, 12);
     const newUser = await User.create({
       name: String(name).trim(),
       email: normalizedEmail,
       password: hashedPassword,
-      role
+      role,
+      status: role === "doctor" ? "pending" : "approved"
     });
 
     return res.status(201).json({
-      message: "Registration successful",
-      user: { id: newUser._id, name: newUser.name, email: newUser.email, role: newUser.role }
+      message: role === "doctor" ? "Registration received. Your account will be reviewed by an administrator." : "Registration successful",
+      user: { id: newUser._id, name: newUser.name, email: newUser.email, role: newUser.role, status: newUser.status }
     });
   } catch (error) {
     console.error("Register Error:", error.message);
@@ -47,16 +46,16 @@ router.post("/login", async (req, res) => {
   try {
     const email = String(req.body.email || "").trim().toLowerCase();
     const password = req.body.password;
-    if (!email || !password) {
-      return res.status(400).json({ message: "Email and password required." });
-    }
+    if (!email || !password) return res.status(400).json({ message: "Email and password required." });
+
     const user = await User.findOne({ email });
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: "Invalid email or password." });
     }
-    if (!process.env.JWT_SECRET) {
-      return res.status(500).json({ message: "Authentication is not configured." });
-    }
+    if (user.status === "pending") return res.status(403).json({ message: "Your doctor account is awaiting administrator approval." });
+    if (user.status === "rejected") return res.status(403).json({ message: "Your doctor application was not approved. Please contact support." });
+    if (user.status === "suspended") return res.status(403).json({ message: "This account is suspended. Please contact support." });
+    if (!process.env.JWT_SECRET) return res.status(500).json({ message: "Authentication is not configured." });
 
     const token = jwt.sign(
       { id: String(user._id), name: user.name, role: user.role },
@@ -66,7 +65,7 @@ router.post("/login", async (req, res) => {
     return res.json({
       message: "Login successful",
       token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role }
+      user: { id: user._id, name: user.name, email: user.email, role: user.role, status: user.status }
     });
   } catch (error) {
     console.error("Login Error:", error.message);
@@ -76,7 +75,7 @@ router.post("/login", async (req, res) => {
 
 router.get("/doctors", verifyToken, async (req, res) => {
   try {
-    const doctors = await User.find({ role: "doctor" }).select("-password");
+    const doctors = await User.find({ role: "doctor", status: "approved" }).select("name email role status");
     return res.json(doctors);
   } catch (error) {
     console.error("Error fetching doctors:", error.message);
@@ -86,7 +85,10 @@ router.get("/doctors", verifyToken, async (req, res) => {
 
 router.get("/patients", verifyToken, async (req, res) => {
   try {
-    const patients = await User.find({ role: "patient" }).select("-password");
+    if (req.user.role !== "admin" && req.user.role !== "doctor") {
+      return res.status(403).json({ message: "You are not allowed to view the patient directory." });
+    }
+    const patients = await User.find({ role: "patient", status: "approved" }).select("name email role status");
     return res.json(patients);
   } catch (error) {
     console.error("Error fetching patients:", error.message);
@@ -100,7 +102,7 @@ router.get("/me", verifyToken, async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found." });
     return res.json(user);
   } catch (error) {
-    console.error("Error fetching user:", error.message);
+    console.error("Error fetching user data:", error.message);
     return res.status(500).json({ message: "Server error fetching user data." });
   }
 });
