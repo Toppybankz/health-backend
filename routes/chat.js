@@ -23,30 +23,46 @@ router.post("/send", async (req, res) => {
     return res.status(201).json(payload);
   } catch (error) { console.error("Error sending message:", error.message); return res.status(500).json({ error: "Failed to send message." }); }
 });
+
 router.get("/private/:sender/:receiver", async (req, res) => {
   try {
     const current = String(req.user.id), { sender, receiver } = req.params;
-    if (![String(sender), String(receiver)].includes(current)) return res.status(403).json({ message: "You cannot access this conversation." });
-    return res.json(await Message.find({ $or: [{ sender: String(sender), receiver: String(receiver) }, { sender: String(receiver), receiver: String(sender) }] }).sort({ createdAt: 1 }));
+    if (!sender || !receiver || ![String(sender), String(receiver)].includes(current)) return res.status(403).json({ message: "You cannot access this conversation." });
+    return res.json(await Message.find({ $or: [{ sender: String(sender), receiver: String(receiver) }, { sender: String(receiver), receiver: String(sender) }] }).sort({ createdAt: 1, _id: 1 }));
   } catch (error) { console.error("Error fetching private messages:", error.message); return res.status(500).json({ error: "Failed to fetch private messages." }); }
 });
-router.get("/conversations/:userId", async (req, res) => {
+
+router.get("/conversations", async (req, res) => {
   try {
     const current = String(req.user.id);
-    if (String(req.params.userId) !== current) return res.status(403).json({ message: "You cannot access another user's conversations." });
-    const conversations = await Message.aggregate([
-      { $match: { $or: [{ sender: current }, { receiver: current }] } },
-      { $sort: { createdAt: 1, _id: 1 } },
-      { $group: { _id: { $cond: [{ $lt: ["$sender", "$receiver"] }, { sender: "$sender", receiver: "$receiver" }, { sender: "$receiver", receiver: "$sender" }] }, lastMessage: { $last: "$$ROOT" } } },
-      { $sort: { "lastMessage.createdAt": -1 } }
-    ]);
+    const messages = await Message.find({ $or: [{ sender: current }, { receiver: current }] }).sort({ createdAt: -1, _id: -1 }).lean();
+    const latestByParticipant = new Map();
+    for (const message of messages) {
+      const participantId = String(message.sender) === current ? String(message.receiver || "") : String(message.sender);
+      if (participantId && !latestByParticipant.has(participantId)) latestByParticipant.set(participantId, message);
+    }
+    const participantIds = [...latestByParticipant.keys()];
+    const participants = await User.find({ _id: { $in: participantIds }, status: "approved", role: { $in: ["doctor", "patient"] } }).select("name role status").lean();
+    const participantById = new Map(participants.map((user) => [String(user._id), user]));
+    const conversations = participantIds.flatMap((participantId) => {
+      const participant = participantById.get(participantId);
+      const lastMessage = latestByParticipant.get(participantId);
+      return participant && lastMessage ? [{ participant: { id: participantId, name: participant.name, role: participant.role }, lastMessage }] : [];
+    });
     return res.json(conversations);
   } catch (error) { console.error("Error fetching conversations:", error.message); return res.status(500).json({ error: "Failed to fetch conversations." }); }
 });
+
+router.get("/conversations/:userId", async (req, res) => {
+  if (String(req.params.userId) !== String(req.user.id)) return res.status(403).json({ message: "You cannot access another user's conversations." });
+  req.url = "/conversations";
+  return router.handle(req, res);
+});
+
 router.get("/messages", async (req, res) => {
   try {
     const current = String(req.user.id);
-    return res.json(await Message.find({ $or: [{ sender: current }, { receiver: current }] }).sort({ createdAt: 1 }));
+    return res.json(await Message.find({ $or: [{ sender: current }, { receiver: current }] }).sort({ createdAt: 1, _id: 1 }));
   } catch (error) { console.error("Error fetching messages:", error.message); return res.status(500).json({ error: "Failed to fetch messages." }); }
 });
 module.exports = router;
