@@ -5,7 +5,7 @@ function isValidObjectId(value) {
 }
 
 function validatePrivateMessageInput({ senderId, receiverId, text, role }) {
-  if (!receiverId || !text) {
+  if (!receiverId || typeof text !== "string" || !text.trim()) {
     return { status: 400, message: "Receiver and message text are required." };
   }
   if (!isValidObjectId(receiverId)) {
