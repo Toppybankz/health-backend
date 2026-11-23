@@ -7,7 +7,7 @@ on:
     branches: [main, "fix/**"]
 
 jobs:
-  syntax:
+  test-and-syntax:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,8 +16,5 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - name: Check JavaScript syntax
-        run: |
-          while IFS= read -r file; do
-            node --check "$file"
-          done < <(find . -path './node_modules' -prune -o -name '*.js' -type f -print)
+      - name: Run unit tests and JavaScript syntax checks
+        run: npm run check
