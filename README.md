@@ -15,6 +15,14 @@ The script creates or updates the administrator account in MongoDB. Remove the t
 ## Doctor approval workflow
 Doctor registrations are stored with status `pending`. Pending doctors cannot sign in and are not listed in the patient-facing doctor directory. An authenticated administrator can approve or reject applications. Approved doctors become available to patients.
 
+## Private messaging
+All chat routes require authentication. A user can retrieve only conversations in which they are a participant. The conversation inbox endpoint returns each approved participant and their latest message:
+- `GET /api/chat/conversations`
+- `GET /api/chat/private/:sender/:receiver`
+- `POST /api/chat/send`
+
+Socket.IO connections require a valid JWT, and users can join only a room for an approved user of the opposite role.
+
 ## Administrator API
 All endpoints below require a valid administrator JWT:
 - `GET /api/admin/overview`
