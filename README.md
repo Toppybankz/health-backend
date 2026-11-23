@@ -98,7 +98,19 @@ Protected HTTP requests use the header `Authorization: Bearer <token>`.
 
 ## Quality checks
 
-GitHub Actions runs JavaScript syntax checks for pull requests and pushes to the main and fix branches. A passing syntax check is not a substitute for integration testing against a configured MongoDB instance.
+Run the built-in unit tests:
+
+\`\`\`bash
+npm test
+\`\`\`
+
+Run the tests and JavaScript syntax checks together:
+
+\`\`\`bash
+npm run check
+\`\`\`
+
+GitHub Actions runs these checks for pull requests and pushes to the main and fix branches. Unit tests cover private-chat input validation; they do not replace integration testing against a configured MongoDB instance.
 
 ## Current scope and limitations
 
