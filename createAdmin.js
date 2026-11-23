@@ -12,9 +12,6 @@ async function createAdmin() {
   if (ADMIN_PASSWORD.length < 12) throw new Error("ADMIN_PASSWORD must be at least 12 characters.");
   await mongoose.connect(MONGO_URI);
   const email = ADMIN_EMAIL.trim().toLowerCase();
-  // Give existing records an explicit status before enabling approval enforcement.
-  await User.updateMany({ status: { $exists: false }, role: "doctor" }, { $set: { status: "pending" } });
-  await User.updateMany({ status: { $exists: false }, role: "patient" }, { $set: { status: "approved" } });
   const password = await bcrypt.hash(ADMIN_PASSWORD, 12);
   const admin = await User.findOneAndUpdate(
     { email },
