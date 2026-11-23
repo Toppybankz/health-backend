@@ -41,6 +41,22 @@ io.on("connection", (socket) => {
     } catch (error) { console.error("Unable to join chat room:", error.message); }
   });
 });
-mongoose.connect(process.env.MONGO_URI).then(() => console.log("MongoDB Connected")).catch((error) => console.error("MongoDB connection error:", error.message));
 const PORT = process.env.PORT || 5001;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+async function startServer() {
+  if (!process.env.MONGO_URI) {
+    console.error("MongoDB connection error: MONGO_URI is not configured.");
+    process.exit(1);
+  }
+
+  try {
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log("MongoDB Connected");
+    server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  } catch (error) {
+    console.error("MongoDB connection error:", error.message);
+    process.exit(1);
+  }
+}
+
+startServer();
