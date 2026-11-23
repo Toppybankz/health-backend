@@ -1,7 +1,7 @@
 const express = require("express");
-const mongoose = require("mongoose");
 const User = require("../models/User");
 const verifyToken = require("../middleware/verifyToken");
+const { isValidObjectId } = require("../utils/chatValidation");
 
 const router = express.Router();
 
@@ -43,7 +43,7 @@ router.get("/users", async (req, res) => {
 router.patch("/doctors/:id/status", async (req, res) => {
   try {
     const { status } = req.body;
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(400).json({ message: "Invalid doctor account ID." });
+    if (!isValidObjectId(req.params.id)) return res.status(400).json({ message: "Invalid doctor account ID." });
     if (!["approved", "rejected", "suspended"].includes(status)) {
       return res.status(400).json({ message: "Status must be approved, rejected or suspended." });
     }
