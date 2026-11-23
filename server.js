@@ -4,110 +4,67 @@ const dotenv = require("dotenv");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const http = require("http");
+const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
-const Message = require("./models/Message");
 
-// ✅ Load environment variables
 const envPath = process.env.SECRET_ENV_PATH || path.resolve(__dirname, ".env");
 dotenv.config({ path: envPath });
 
 const app = express();
 const server = http.createServer(app);
-
-// ✅ Allowed origins
 const allowedOrigins = [
-  "https://health-consultation-frontend.vercel.app", // ✅ Live frontend
-  "http://localhost:3000" // ✅ Local dev
-];
+  process.env.FRONTEND_URL,
+  "https://health-consultation-frontend.vercel.app",
+  "http://localhost:3000"
+].filter(Boolean);
 
-// ✅ Middleware
-app.use(express.json());
-app.use(
-  cors({
-    origin: allowedOrigins,
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true
-  })
-);
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("Origin not allowed by CORS"));
+  },
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true
+};
 
-// ✅ Initialize Socket.IO with explicit CORS
-const io = new Server(server, {
-  cors: {
-    origin: allowedOrigins,
-    methods: ["GET", "POST"],
-    credentials: true,
-    transports: ["websocket", "polling"] // ✅ Added fallback
-  }
-});
+app.use(express.json({ limit: "1mb" }));
+app.use(cors(corsOptions));
 
-// ✅ Routes
+const io = new Server(server, { cors: corsOptions });
+app.set("io", io);
+
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/chat", require("./routes/chat"));
 
-// ✅ MongoDB Connection
-mongoose
-  .connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-  })
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.error("❌ Mongo Error:", err.message));
+io.use((socket, next) => {
+  const token = socket.handshake.auth && socket.handshake.auth.token;
+  if (!token || !process.env.JWT_SECRET) {
+    return next(new Error("Authentication required"));
+  }
+  try {
+    socket.user = jwt.verify(token, process.env.JWT_SECRET);
+    return next();
+  } catch (error) {
+    return next(new Error("Invalid or expired token"));
+  }
+});
 
-// ✅ Socket.IO Real-time Chat
 io.on("connection", (socket) => {
-  console.log("✅ User connected:", socket.id);
-
-  // ✅ Join a chat room
-  socket.on("joinRoom", (room) => {
-    if (!room) return;
+  // The client supplies only the other participant's ID. The room name and
+  // membership are derived and checked on the server.
+  socket.on("joinRoom", (otherUserId) => {
+    const currentUserId = String(socket.user.id);
+    const receiverId = String(otherUserId || "");
+    if (!receiverId || receiverId === currentUserId) return;
+    const room = `private-${[currentUserId, receiverId].sort().join("-")}`;
     socket.join(room);
-    console.log(`✅ User ${socket.id} joined room: ${room}`);
-  });
-
-  // ✅ Send and broadcast message
-  socket.on("sendMessage", async (msg) => {
-    console.log("📥 Message received from client:", msg);
-
-    const { sender, senderName, receiver, text, room } = msg;
-
-    if (!sender || !receiver || !text || !room) {
-      console.error("❌ Invalid message data:", msg);
-      return;
-    }
-
-    try {
-      const newMessage = new Message({
-        sender,
-        senderName: senderName || "Unknown",
-        receiver,
-        text
-      });
-      await newMessage.save();
-      console.log("✅ Message saved to DB:", newMessage);
-
-      const formattedMessage = {
-        _id: newMessage._id,
-        text: newMessage.text,
-        sender: newMessage.sender,
-        receiver: newMessage.receiver,
-        senderName: newMessage.senderName,
-        room,
-        createdAt: newMessage.createdAt
-      };
-
-      // ✅ Broadcast to room
-      io.to(room).emit("message", formattedMessage);
-      console.log(`📤 Message sent to room: ${room}`);
-    } catch (err) {
-      console.error("❌ Error saving/broadcasting message:", err.message);
-    }
-  });
-
-  socket.on("disconnect", () => {
-    console.log(`❌ User disconnected: ${socket.id}`);
   });
 });
 
-// ✅ Deployment Port
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB Connected"))
+  .catch((error) => console.error("MongoDB connection error:", error.message));
+
 const PORT = process.env.PORT || 5001;
-server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
